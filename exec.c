@@ -19,12 +19,17 @@ exec(char *path, char **argv)
   pde_t *pgdir, *oldpgdir;
   struct proc *curproc = myproc();
 
+  /* Open the executable file and parses it */
+
+  curproc->sizeOfStack = 1;
+
   begin_op();
 
-  if((ip = namei(path)) == 0){
+  if((ip = namei(path)) == 0){     /* Bad executable file */
     end_op();
     cprintf("exec: fail\n");
     return -1;
+
   }
   ilock(ip);
   pgdir = 0;
@@ -35,10 +40,13 @@ exec(char *path, char **argv)
   if(elf.magic != ELF_MAGIC)
     goto bad;
 
+  /* Initializes kernel memory using setupkvm() */
+
   if((pgdir = setupkvm()) == 0)
     goto bad;
 
   // Load program into memory.
+  // Load sections of the executable file into memor using loaduvm()
   sz = 0;
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
@@ -62,11 +70,37 @@ exec(char *path, char **argv)
 
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
+  
+  // round sz up to the next page boundary since stack must start 
+  // in a new page
   sz = PGROUNDUP(sz);
+
+  // allocuvm - allocates and maps two pages. 
+
+  /*
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
-  clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
-  sp = sz;
+  */
+
+  /* initialize stack pointer */
+
+  //curproc->tf->esp = KERNBASE - 4;
+
+  /* Stack size single page - PGSIZE */
+
+
+  if((sp = allocuvm(pgdir, KERNBASE - 4 - PGSIZE, KERNBASE - 4)) == 0)
+    goto bad;
+
+
+  // clear the PTE for the first page to create a buffer page
+  // between stack and code/data
+
+  // clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
+
+  /* ^^^ creates a buffer page - NOT NEEDED */  
+
+  //sp = sz;
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {

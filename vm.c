@@ -46,6 +46,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
       return 0;
     // Make sure all those PTE_P bits are zero.
     memset(pgtab, 0, PGSIZE);
+    // x
     // The permissions here are overly generous, but they can
     // be further restricted by the permissions in the page table
     // entries, if necessary.
@@ -84,6 +85,7 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 // current process's page table during system calls and interrupts;
 // page protection bits prevent user code from using the kernel's
 // mappings.
+//x
 //
 // setupkvm() and exec() set up every page table like this:
 //
@@ -95,6 +97,8 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 //   data..KERNBASE+PHYSTOP: mapped to V2P(data)..PHYSTOP,
 //                                  rw data + free physical memory
 //   0xfe000000..0: mapped direct (devices such as ioapic)
+//x
+//x
 //
 // The kernel allocates physical memory for its heap and for user memory
 // between V2P(end) and the end of physical memory (PHYSTOP)
@@ -125,6 +129,7 @@ setupkvm(void)
     return 0;
   memset(pgdir, 0, PGSIZE);
   if (P2V(PHYSTOP) > (void*)DEVSPACE)
+
     panic("PHYSTOP too high");
   for(k = kmap; k < &kmap[NELEM(kmap)]; k++)
     if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
@@ -162,7 +167,6 @@ switchuvm(struct proc *p)
     panic("switchuvm: no kstack");
   if(p->pgdir == 0)
     panic("switchuvm: no pgdir");
-
   pushcli();
   mycpu()->gdt[SEG_TSS] = SEG16(STS_T32A, &mycpu()->ts,
                                 sizeof(mycpu()->ts)-1, 0);
@@ -313,6 +317,7 @@ clearpteu(pde_t *pgdir, char *uva)
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*
+
 copyuvm(pde_t *pgdir, uint sz)
 {
   pde_t *d;
@@ -323,6 +328,7 @@ copyuvm(pde_t *pgdir, uint sz)
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
+    // Reads the page table to get PTE for the page
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
@@ -335,6 +341,22 @@ copyuvm(pde_t *pgdir, uint sz)
     if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
       goto bad;
   }
+  struct proc* curproc = myproc();  
+
+  for(i = PGROUNDUP(KERNBASE -4  - curproc->sizeOfStack * PGSIZE); i < KERNBASE -4; i += PGSIZE) {
+    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+      panic("copyuvm: pte should exist");
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+    pa = PTE_ADDR(*pte);
+    flags = PTE_FLAGS(*pte);
+    if((mem = kalloc()) == 0)
+      goto bad;
+    memmove(mem, (char*)P2V(pa), PGSIZE);
+    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
+      goto bad;
+  }
+
   return d;
 
 bad:
